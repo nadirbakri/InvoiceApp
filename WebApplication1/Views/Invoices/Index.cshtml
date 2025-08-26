@@ -1,0 +1,293 @@
+﻿@using System.Web.Helpers
+@{
+    ViewBag.Title = "Invoices";
+    var SALES = Json.Encode(ViewBag.Sales);
+    var COURIERS = Json.Encode(ViewBag.Couriers);
+    var PAYMENTS = Json.Encode(ViewBag.Payments);
+    var PRODUCTS = Json.Encode(ViewBag.Products);
+}
+<h3>Invoices</h3>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="form-inline" style="margin-bottom:10px;">
+            <input id="q" class="form-control" style="max-width:260px" placeholder="Cari InvoiceNo..." />
+            <button id="btnSearch" class="btn btn-default">Cari</button>
+            <button id="btnNew" class="btn btn-primary" style="margin-left:10px;">+ New</button>
+            <button id="btnSave" class="btn btn-success" style="margin-left:5px;">Save</button>
+            <button id="btnDelete" class="btn btn-danger" style="margin-left:5px;">Delete</button>
+        </div>
+        <table class="table table-bordered table-striped" id="tblList">
+            <thead><tr><th>No</th><th>Date</th><th>Sales</th><th>Courier</th><th>Payment</th><th class="text-right">Courier Fee</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="panel panel-default">
+    <div class="panel-heading"><b>Invoice Detail</b></div>
+    <div class="panel-body">
+        <div class="row">
+            <div class="col-md-3">
+                <label>No Invoice</label>
+                <input id="InvoiceNo" class="form-control" />
+            </div>
+            <div class="col-md-3">
+                <label>Invoice Date</label>
+                <input id="InvoiceDate" type="date" class="form-control" />
+            </div>
+            <div class="col-md-3">
+                <label>Payment Type</label>
+                <select id="PaymentType" class="form-control"></select>
+            </div>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+            <div class="col-md-6">
+                <label>To</label>
+                <textarea id="InvoiceTo" class="form-control" rows="4"></textarea>
+            </div>
+            <div class="col-md-6">
+                <label>Ship To</label>
+                <textarea id="ShipTo" class="form-control" rows="4"></textarea>
+            </div>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+            <div class="col-md-6">
+                <label>Sales Name</label>
+                <select id="SalesID" class="form-control"></select>
+            </div>
+            <div class="col-md-6">
+                <label>Courier</label>
+                <select id="CourierID" class="form-control"></select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<table class="table table-bordered" id="tblDetail">
+    <thead>
+        <tr>
+            <th style="width:38%">Item</th>
+            <th style="width:12%">Weight(Kg)</th>
+            <th style="width:12%">QTY</th>
+            <th style="width:15%">Unit Price</th>
+            <th style="width:15%">Total</th>
+            <th style="width:8%"></th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+<button id="btnAddRow" class="btn btn-default">+ Tambah Item</button>
+
+<div class="well" style="margin-top:10px;">
+    <div class="row">
+        <div class="col-md-4 col-md-offset-8">
+            <div class="form-group">
+                <label>Sub Total</label>
+                <input id="SubTotal" class="form-control text-right" readonly />
+            </div>
+            <div class="form-group">
+                <label>Courier Fee</label>
+                <input id="CourierFee" class="form-control text-right" readonly />
+            </div>
+            <div class="form-group">
+                <label>Total</label>
+                <input id="GrandTotal" class="form-control text-right" readonly />
+            </div>
+        </div>
+    </div>
+</div>
+
+@section scripts{
+    <script>
+        (function () {
+            var SALES = @Html.Raw(SALES);
+            var COURIERS = @Html.Raw(COURIERS);
+            var PAYMENTS = @Html.Raw(PAYMENTS);
+            var PRODUCTS = @Html.Raw(PRODUCTS);
+
+            function fillOpts(sel, list) {
+                var ops = ['<option value="">Pilih...</option>'].concat(list.map(function (x) {
+                    return '<option value="' + x.id + '">' + x.name + '</option>';
+                })).join('');
+                $(sel).html(ops);
+            }
+
+            function productSelect(val) {
+                var ops = PRODUCTS.map(function (p) {
+                    return '<option value="' + p.id + '">' + p.name + '</option>';
+                }).join('');
+                
+                var $s = $('<select class="form-control prod">' + ops + '</select>');
+                if (val) $s.val(val);
+
+                return $s;
+            }
+
+            function addRow(row) {
+                var w = row ? (row.Weight || 0) : 0;
+                var q = row ? (row.Qty || 1) : 1;
+                var pr = row ? (row.Price || 0) : 0;
+                var $tr = $('<tr/>');
+                $tr.append($('<td/>').append(productSelect(row && row.ProductID)));
+                $tr.append('<td><input class="form-control weight" value="' + w + '" readonly/></td>');
+                $tr.append('<td><input class="form-control qty" type="number" min="1" value="' + q + '"/></td>');
+                $tr.append('<td><input class="form-control price" type="number" step="0.01" value="' + pr + '"/></td>');
+                $tr.append('<td class="lineTotal text-right">0</td>');
+                $tr.append('<td><button type="button" class="btn btn-danger btn-sm remove">Hapus</button></td>');
+                $('#tblDetail tbody').append($tr);
+                recalc();
+            }
+
+            function rowTotal($tr) {
+                var q = parseFloat($tr.find('.qty').val() || 0);
+                var p = parseFloat($tr.find('.price').val() || 0);
+                $tr.find('.lineTotal').text((q * p).toLocaleString());
+            }
+
+            function recalc() {
+                var sub = 0, pids = [], qtys = [];
+                $('#tblDetail tbody tr').each(function () {
+                      var $tr = $(this);
+                      var q = parseFloat($tr.find('.qty').val() || 0);
+                      var p = parseFloat($tr.find('.price').val() || 0);
+                      var pid = parseInt($tr.find('.prod').val() || 0);
+                      sub += q * p;
+                      if (pid > 0 && q > 0) { pids.push(pid); qtys.push(q); }
+                      rowTotal($tr);
+                });
+                $('#SubTotal').val(sub.toLocaleString());
+
+                var courierId = parseInt($('#CourierID').val() || 0);
+                if (courierId > 0 && pids.length > 0) {
+                    $.ajax({
+                        url: '@Url.Action("PreviewCourierFee","Invoices")',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ courierId: courierId, productIds: pids, qtys: qtys })
+                    }).done(function (r) {
+                        var fee = parseFloat(r.fee || 0);
+                        $('#CourierFee').val(fee.toLocaleString());
+                        $('#GrandTotal').val((sub + fee).toLocaleString());
+                    });
+                } else {
+                    $('#CourierFee').val('0');
+                    $('#GrandTotal').val(sub.toLocaleString());
+                }
+            }
+
+            function loadList() {
+                $.getJSON('@Url.Action("List","Invoices")', { q: $('#q').val() || '' }, function (res) {
+                    var rows = res.rows || [];
+                    var html = rows.map(function (r) {
+                        return '<tr data-id="' + r.InvoiceNo + '"><td>' + r.InvoiceNo + '</td><td>' + r.Date + '</td><td>' + r.Sales + '</td><td>' + r.Courier + '</td><td>' + r.Payment + '</td><td class="text-right">' + (r.CourierFee || 0).toLocaleString() + '</td></tr>';
+                    }).join('');
+
+                    $('#tblList tbody').html(html);
+                });
+            }
+
+            fillOpts('#SalesID', SALES);
+            fillOpts('#CourierID', COURIERS);
+            fillOpts('#PaymentType', PAYMENTS);
+
+            $('#tblDetail').on('change', '.qty,.price', recalc);
+            $('#tblDetail').on('click', '.remove', function () { $(this).closest('tr').remove(); recalc(); });
+            $('#tblDetail').on('change', '.prod', function () {
+                var id = parseInt($(this).val() || 0);
+                var p = PRODUCTS.find(function (x) { return x.id === id; });
+                var $tr = $(this).closest('tr');
+
+                if (p) {
+                    $tr.find('.weight').val(p.weight);
+
+                    if (parseFloat($tr.find('.price').val() || 0) === 0) { $tr.find('.price').val(p.price); }
+                }
+                recalc();
+            });
+
+            $('#btnAddRow').click(function () { addRow(); });
+            $('#CourierID').on('change', recalc);
+
+            $('#btnSearch').click(loadList);
+            $('#tblList').on('click', 'tr', function () {
+                var id = $(this).data('id');
+                $('#q').val(id);
+                $('#tblList tr').removeClass('active');
+                $(this).addClass('active');
+                $.getJSON('@Url.Action("Get","Invoices")', { id: id }, function (res) {
+                    if (!res || !res.ok) return;
+                    var h = res.header;
+                    $('#InvoiceNo').val(h.InvoiceNo);
+                    $('#InvoiceDate').val(h.Date);
+                    $('#InvoiceTo').val(h.InvoiceTo);
+                    $('#ShipTo').val(h.ShipTo);
+                    $('#SalesID').val(h.SalesID);
+                    $('#CourierID').val(h.CourierID);
+                    $('#PaymentType').val(h.PaymentType);
+                    $('#tblDetail tbody').empty();
+                    (res.details || []).forEach(function (d) { addRow(d); });
+                    recalc();
+                });
+            });
+            $('#btnNew').click(function () {
+                $('#InvoiceNo').val('');
+                $('#InvoiceDate').val(new Date().toISOString().substring(0, 10));
+                $('#InvoiceTo,#ShipTo').val('');
+                $('#SalesID,#CourierID,#PaymentType').val('');
+                $('#tblDetail tbody').empty();
+                addRow();
+                recalc();
+            });
+
+            $('#btnSave').click(function () {
+                var dto = {
+                    InvoiceNo: $('#InvoiceNo').val(),
+                    Date: $('#InvoiceDate').val(),
+                    InvoiceTo: $('#InvoiceTo').val(),
+                    ShipTo: $('#ShipTo').val(),
+                    SalesID: parseInt($('#SalesID').val() || 0),
+                    CourierID: parseInt($('#CourierID').val() || 0),
+                    PaymentType: parseInt($('#PaymentType').val() || 0),
+                    ProductID: [], Qty: [], Price: []
+                };
+
+                $('#tblDetail tbody tr').each(function () {
+                    var pid = parseInt($(this).find('.prod').val() || 0);
+                    var qty = parseInt($(this).find('.qty').val() || 0);
+                    var price = parseFloat($(this).find('.price').val() || 0);
+                    if (pid > 0 && qty > 0) { dto.ProductID.push(pid); dto.Qty.push(qty); dto.Price.push(price); }
+                });
+
+                $.ajax({
+                    url: '@Url.Action("Save","Invoices")',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(dto)
+                }).done(function (r) {
+                    if (!r || !r.ok) { alert(r && r.msg ? r.msg : 'Save failed'); return; }
+                    $('#q').val($('#InvoiceNo').val());
+                    loadList();
+                    alert('Saved');
+                });
+            });
+
+            $('#btnDelete').click(function () {
+                var id = $('#InvoiceNo').val();
+                if (!id) { alert('No InvoiceNo'); return; }
+                if (!confirm('Delete ' + id + ' ?')) return;
+
+                $.post('@Url.Action("Remove","Invoices")', { id: id }, function (r) {
+                    if (!r || !r.ok) { alert('Delete failed'); return; }
+                    $('#btnNew').click();
+                    loadList();
+                });
+            });
+
+            $('#btnNew').click();
+            loadList();
+        })();
+    </script>
+}
